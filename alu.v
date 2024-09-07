@@ -85,7 +85,7 @@ assign sll_result = alu_src1 << alu_src2[4:0];   //rj << i5
 assign sr64_result = {{32{op_sra & alu_src1[31]}}, alu_src1[31:0]} >> alu_src2[4:0]; //rj >> i5
 
 //error8: [30:0]->[31:0]
-assign sr_result   = sr64_result[30:0];
+assign sr_result   = sr64_result[31:0];
 
 // final result mux
 assign alu_result = ({32{op_add|op_sub}} & add_sub_result)
