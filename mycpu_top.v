@@ -25,12 +25,13 @@ always @(posedge clk) reset <= ~resetn;
 wire [31:0] seq_pc;
 wire [31:0] nextpc;
 wire        br_taken;
+wire 	    br_taken_cancel;
 wire [31:0] br_target;
 
 wire [31:0] f_inst;
 reg [31:0] D_inst;
 
-wire pre_f_alllowin;
+wire pre_f_allowin;
 wire f_allowin;
 wire F_readygo;
 wire F2D_valid;
@@ -113,6 +114,9 @@ wire [31:0] d_br_offs;
 wire [31:0] d_jirl_offs;
 
 
+wire        raddr1_risk;
+wire        raddr2_risk;
+
 
 wire [ 5:0] op_31_26;
 wire [ 3:0] op_25_22;
@@ -186,12 +190,11 @@ wire [31:0] m_final_result;       //error2: declare final_result
 reg  [31:0] W_final_result;
 
 assign seq_pc       = F_PC + 32'h4;
-assign nextpc       = br_taken ? br_target : seq_pc;
+assign nextpc       = pre_f_allowin ? (br_taken ? br_target : seq_pc) : F_PC;
 
 
 ////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////
-//IF流水级
 assign F_readygo = 1'b1;
 assign pre_f_allowin = !F_valid | F_readygo & f_allowin;
 assign F2D_valid = F_valid & F_readygo;
@@ -207,6 +210,8 @@ always @(posedge clk) begin
 		F_valid <= 1'b1;
 		F_PC <= nextpc;
 	end
+	else if(br_taken_cancel)
+		F_valid <= 1'b0;
 
 end
 ////////////////////////////////////////////////////////////////
@@ -222,13 +227,14 @@ assign f_inst            = inst_sram_rdata;
 
 ////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////
-//ID流水级
-assign D_readygo = 1'b1;
+assign D_readygo = ~raddr1_risk & ~raddr2_risk;
 assign f_allowin = !D_valid | D_readygo & d_allowin;
 assign D2E_valid = D_valid & D_readygo;
 always @(posedge clk)
 begin
 	if(reset)
+		D_valid <= 1'b0;
+	else if(br_taken_cancel)
 		D_valid <= 1'b0;
 	else if(f_allowin)
 		D_valid <= F2D_valid;
@@ -355,16 +361,23 @@ assign br_taken = (   inst_beq  &  rj_eq_rd
                    || inst_jirl
                    || inst_bl
                    || inst_b
-                  ) & D_valid;
+                  ) & D_valid ;
+assign br_taken_cancel = br_taken & ~raddr1_risk & ~raddr2_risk;
 assign br_target = (inst_beq || inst_bne || inst_bl || inst_b) ? (D_PC + d_br_offs) :
                                                    /*inst_jirl*/ (d_rj_value + d_jirl_offs);
 
+
+assign raddr1_risk =   (((rf_raddr1 == E_dest) & |E_dest & E_gr_we & E_valid) |
+			((rf_raddr1 == M_dest) & |M_dest & M_gr_we & M_valid) |
+			((rf_raddr1 == W_dest) & |W_dest & W_gr_we & W_valid)) & ~inst_bl;
+assign raddr2_risk =   (((rf_raddr2 == E_dest) & |E_dest & E_gr_we & E_valid) |
+			((rf_raddr2 == M_dest) & |M_dest & M_gr_we & M_valid) |
+			((rf_raddr2 == W_dest) & |W_dest & W_gr_we & W_valid)) & (~d_src2_is_imm | inst_ld_w | inst_st_w);
 
 
 
 ////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////
-//EX流水级
 assign E_readygo = 1'b1;
 assign d_allowin = !E_valid | E_readygo & e_allowin;
 assign E2M_valid = E_valid & E_readygo;
@@ -418,7 +431,6 @@ assign data_sram_wdata = E_rkd_value;
 
 ////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////
-//MEM流水级
 assign M_readygo = 1'b1;
 assign e_allowin = !M_valid | M_readygo & m_allowin;
 assign M2W_valid = M_valid & M_readygo;
@@ -447,7 +459,6 @@ assign m_final_result = M_res_from_mem ? mem_result : M_alu_result;
 
 ////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////
-//WB流水级
 assign W_readygo = 1'b1;
 assign m_allowin = !W_valid | W_readygo & w_allowin;
 always @(posedge clk)
