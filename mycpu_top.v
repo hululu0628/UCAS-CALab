@@ -114,8 +114,12 @@ wire [31:0] d_br_offs;
 wire [31:0] d_jirl_offs;
 
 
-wire        raddr1_risk;
-wire        raddr2_risk;
+wire        raddr1_risk_E;
+wire        raddr2_risk_E;
+wire        raddr1_risk_M;
+wire        raddr2_risk_M;
+wire        raddr1_risk_W;
+wire        raddr2_risk_W;
 
 
 wire [ 5:0] op_31_26;
@@ -227,7 +231,7 @@ assign f_inst            = inst_sram_rdata;
 
 ////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////
-assign D_readygo = ~raddr1_risk & ~raddr2_risk;
+assign D_readygo = ~(raddr1_risk_E & E_mem_en) & ~(raddr2_risk_E & E_mem_en);
 assign f_allowin = !D_valid | D_readygo & d_allowin;
 assign D2E_valid = D_valid & D_readygo;
 always @(posedge clk)
@@ -352,8 +356,14 @@ regfile u_regfile(
     .wdata  (rf_wdata )
     );
 
-assign d_rj_value  = rf_rdata1;
-assign d_rkd_value = rf_rdata2;
+assign d_rj_value = 	raddr1_risk_E ? e_alu_result :
+			raddr1_risk_M ? m_final_result :
+			raddr1_risk_W ? W_final_result :
+			rf_rdata1;
+assign d_rkd_value = 	raddr2_risk_E ? e_alu_result :
+			raddr2_risk_M ? m_final_result :
+			raddr2_risk_W ? W_final_result :
+			rf_rdata2;
 
 assign rj_eq_rd = (d_rj_value == d_rkd_value);
 assign br_taken = (   inst_beq  &  rj_eq_rd
@@ -362,18 +372,18 @@ assign br_taken = (   inst_beq  &  rj_eq_rd
                    || inst_bl
                    || inst_b
                   ) & D_valid ;
-assign br_taken_cancel = br_taken & ~raddr1_risk & ~raddr2_risk;
+assign br_taken_cancel = br_taken & ~(raddr1_risk_E & E_mem_en) & ~(raddr2_risk_E & E_mem_en);
 assign br_target = (inst_beq || inst_bne || inst_bl || inst_b) ? (D_PC + d_br_offs) :
                                                    /*inst_jirl*/ (d_rj_value + d_jirl_offs);
 
 
-assign raddr1_risk =   (((rf_raddr1 == E_dest) & |E_dest & E_gr_we & E_valid) |
-			((rf_raddr1 == M_dest) & |M_dest & M_gr_we & M_valid) |
-			((rf_raddr1 == W_dest) & |W_dest & W_gr_we & W_valid)) & ~inst_bl;
-assign raddr2_risk =   (((rf_raddr2 == E_dest) & |E_dest & E_gr_we & E_valid) |
-			((rf_raddr2 == M_dest) & |M_dest & M_gr_we & M_valid) |
-			((rf_raddr2 == W_dest) & |W_dest & W_gr_we & W_valid)) & (~d_src2_is_imm | inst_ld_w | inst_st_w);
 
+assign raddr1_risk_E = (rf_raddr1 == E_dest) & |E_dest & E_gr_we & E_valid;
+assign raddr2_risk_E = (rf_raddr2 == E_dest) & |E_dest & E_gr_we & E_valid;
+assign raddr1_risk_M = (rf_raddr1 == M_dest) & |M_dest & M_gr_we & M_valid;
+assign raddr2_risk_M = (rf_raddr2 == M_dest) & |M_dest & M_gr_we & M_valid;
+assign raddr1_risk_W = (rf_raddr1 == W_dest) & |W_dest & W_gr_we & W_valid;
+assign raddr2_risk_W = (rf_raddr2 == W_dest) & |W_dest & W_gr_we & W_valid;
 
 
 ////////////////////////////////////////////////////////////////
